@@ -1,0 +1,19 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Local training artifacts stay on the robot/workstation.
+runs/
+*.npz
+*.pt
+*.pth
+*.bag
+
+# Editor and OS noise.
+.idea/
+.vscode/
+.DS_Store
+

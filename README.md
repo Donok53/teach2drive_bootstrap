@@ -1,0 +1,110 @@
+# Teach2Drive Bootstrap
+
+Mapless, demonstration-derived route-following baseline for low-resource end-to-end driving experiments.
+
+This first implementation follows the research policy we settled on:
+
+- no HD map dependency
+- no platform-specific action label dependency
+- `/cmd_vel` is not used as the training target
+- a recorded odometry trajectory becomes the route memory
+- each sample is conditioned on a local lookahead goal
+- the model predicts future ego-motion from odometry-derived supervision
+- pose perturbation augmentation teaches near-route rejoin behavior
+
+## Pipeline
+
+```bash
+# 1. Extract odometry and optional IMU from a ROS1 bag.
+/usr/bin/python3 -m teach2drive.rosbag_extract \
+  --bag "/home/byeongjae/bagfiles/3차 실내 주행/3차 실내주행.bag" \
+  --output runs/indoor_3rd/extracted_route.npz
+
+# 2. Build supervised route-following samples.
+/home/byeongjae/miniconda3/envs/vad/bin/python -m teach2drive.route_dataset \
+  --input runs/indoor_3rd/extracted_route.npz \
+  --output runs/indoor_3rd/train_dataset.npz \
+  --lookahead-m 2.0 \
+  --augmentations 4
+
+# 3. Train the bootstrap policy.
+/home/byeongjae/miniconda3/envs/vad/bin/python -m teach2drive.train \
+  --data runs/indoor_3rd/train_dataset.npz \
+  --out-dir runs/indoor_3rd \
+  --epochs 120
+```
+
+## Camera/LiDAR Stage
+
+For bags with camera or LiDAR topics, use the sensor-conditioned pipeline:
+
+```bash
+/usr/bin/python3 -m teach2drive.sensor_extract \
+  --bag "/home/byeongjae/bagfiles/3차 실내 주행/camera_약간겹침.bag" \
+  --output runs/camera_overlap/sensor_route.npz
+
+/home/byeongjae/miniconda3/envs/vad/bin/python -m teach2drive.sensor_dataset \
+  --input runs/camera_overlap/sensor_route.npz \
+  --output runs/camera_overlap/sensor_dataset.npz \
+  --lookahead-m 2.0 \
+  --augmentations 2 \
+  --require-exteroceptive
+
+/home/byeongjae/miniconda3/envs/vad/bin/python -m teach2drive.train_sensor \
+  --data runs/camera_overlap/sensor_dataset.npz \
+  --out-dir runs/camera_overlap \
+  --epochs 60
+```
+
+## Live ROS1 Inference
+
+Start in dry-run mode first. This publishes only the predicted local trajectory:
+
+```bash
+cd /home/byeongjae/code/teach2drive_bootstrap
+source /opt/ros/noetic/setup.bash
+/home/byeongjae/miniconda3/envs/vad/bin/python -m teach2drive.live_ros_node \
+  --checkpoint runs/camera_overlap/best_sensor_model.pt \
+  --route-npz runs/camera_overlap/sensor_route.npz
+```
+
+Inspect:
+
+```bash
+rostopic echo /teach2drive/predicted_path
+```
+
+Only after the predicted path looks sane in RViz, enable `/cmd_vel` output with conservative limits:
+
+```bash
+/home/byeongjae/miniconda3/envs/vad/bin/python -m teach2drive.live_ros_node \
+  --checkpoint runs/camera_overlap/best_sensor_model.pt \
+  --route-npz runs/camera_overlap/sensor_route.npz \
+  --publish-cmd-vel \
+  --max-speed 0.15 \
+  --max-yaw-rate 0.4
+```
+
+Keep an external emergency stop active. The node publishes zero velocity if odom is stale, camera/LiDAR is stale, or the robot is farther than `--max-route-distance` from the demonstrated route.
+
+## Model Input
+
+The current baseline uses a compact route-policy input:
+
+- ego velocity and yaw rate from odometry
+- optional IMU summary resampled to odometry timestamps
+- local lookahead waypoint in the ego frame
+- nearest route anchor in the ego frame
+- progress and remaining route distance
+
+This keeps the first version intentionally small. Camera/LiDAR encoders can be added behind the same dataset interface once the route-memory baseline is verified.
+
+## Model Output
+
+The model predicts future ego trajectory deltas:
+
+```text
+[dx, dy, dyaw] at 0.5s, 1.0s, 1.5s, 2.0s
+```
+
+Those outputs are motion-policy targets, not raw actuator commands. A platform-specific controller can later convert the predicted local trajectory into `/cmd_vel`, Ackermann control, or another command interface.
