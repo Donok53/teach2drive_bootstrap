@@ -1,8 +1,8 @@
 # Local Artifacts
 
-Training artifacts are intentionally not committed to git.
+Training artifacts are committed because the live robot node needs the trained checkpoint and route memory.
 
-Current local outputs:
+Current outputs:
 
 - `runs/indoor_3rd/best_model.pt`
 - `runs/indoor_3rd/metrics.json`
@@ -21,4 +21,3 @@ final_horizon_xy_error_m: 0.020436229184269905
 ```
 
 Recreate the artifacts with the commands in `README.md`.
-

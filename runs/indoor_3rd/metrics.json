@@ -1,0 +1,23 @@
+{
+  "data": "runs/indoor_3rd/train_dataset.npz",
+  "device": "cuda",
+  "samples": 18630,
+  "train_samples": 15840,
+  "val_samples": 2790,
+  "best_epoch": 114,
+  "best_val_loss": 0.0018593843128828634,
+  "split_mode": "group_random",
+  "mean_xy_error_m_by_horizon": [
+    0.007882848381996155,
+    0.011425001546740532,
+    0.01625135913491249,
+    0.023003851994872093
+  ],
+  "mean_yaw_error_rad_by_horizon": [
+    0.006965926382690668,
+    0.00866937916725874,
+    0.012794717215001583,
+    0.01837015338242054
+  ],
+  "final_horizon_xy_error_m": 0.023003827780485153
+}

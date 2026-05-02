@@ -5,15 +5,10 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 
-# Local training artifacts stay on the robot/workstation.
-runs/
-*.npz
-*.pt
-*.pth
+# Raw bags stay local. Curated run artifacts are committed for robot deployment.
 *.bag
 
 # Editor and OS noise.
 .idea/
 .vscode/
 .DS_Store
-

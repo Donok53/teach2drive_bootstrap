@@ -1,0 +1,23 @@
+{
+  "data": "runs/camera_overlap/sensor_dataset.npz",
+  "device": "cuda",
+  "samples": 5295,
+  "train_samples": 4503,
+  "val_samples": 792,
+  "best_epoch": 60,
+  "best_val_loss": 0.0013638843024958564,
+  "split_mode": "group_random",
+  "mean_xy_error_m_by_horizon": [
+    0.01625005528330803,
+    0.01628826931118965,
+    0.01814730279147625,
+    0.020436227321624756
+  ],
+  "mean_yaw_error_rad_by_horizon": [
+    0.013817413710057735,
+    0.014494426548480988,
+    0.014740859158337116,
+    0.015800368040800095
+  ],
+  "final_horizon_xy_error_m": 0.020436229184269905
+}
