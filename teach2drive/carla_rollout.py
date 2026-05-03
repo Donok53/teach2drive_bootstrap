@@ -13,6 +13,15 @@ from .geometry import cumulative_distance, pose_to_ego, wrap_angle
 from .model import SensorFusionPolicy
 
 
+PENALTY_COEFFICIENTS = {
+    "collisions_pedestrian": 0.50,
+    "collisions_vehicle": 0.60,
+    "collisions_layout": 0.65,
+    "red_light": 0.70,
+    "stop_infraction": 0.80,
+}
+
+
 def _load_model(checkpoint, device):
     ckpt = torch.load(str(checkpoint), map_location=device)
     cfg = ckpt["model"]
@@ -63,6 +72,122 @@ def _projected_speed(vehicle):
 
 def _short_map_name(map_name):
     return str(map_name).rsplit("/", 1)[-1] if map_name else ""
+
+
+def _new_infraction_log():
+    return {
+        "collisions_layout": [],
+        "collisions_pedestrian": [],
+        "collisions_vehicle": [],
+        "red_light": [],
+        "stop_infraction": [],
+        "outside_route_lanes": [],
+        "route_dev": [],
+        "route_timeout": [],
+    }
+
+
+def _location_text(location):
+    return f"(x={location.x:.2f}, y={location.y:.2f}, z={location.z:.2f})"
+
+
+def _collision_key(actor_type_id):
+    if actor_type_id.startswith("walker."):
+        return "collisions_pedestrian"
+    if actor_type_id.startswith("vehicle."):
+        return "collisions_vehicle"
+    return "collisions_layout"
+
+
+def _score_like_leaderboard(route_completion_pct, infractions):
+    penalty = 1.0
+    for key, coefficient in PENALTY_COEFFICIENTS.items():
+        penalty *= coefficient ** len(infractions[key])
+    return {
+        "score_route": float(route_completion_pct),
+        "score_penalty": float(penalty),
+        "score_composed": float(route_completion_pct * penalty),
+    }
+
+
+def _open_video_writer(path, image_size, hz, scale, codec):
+    if not path:
+        return None
+    out_path = Path(path).expanduser()
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    width = int(image_size[0] * scale)
+    height = int(image_size[1] * scale)
+    writer = cv2.VideoWriter(str(out_path), cv2.VideoWriter_fourcc(*codec), float(hz), (width, height))
+    if not writer.isOpened():
+        raise RuntimeError(f"Could not open video writer: {out_path}")
+    return writer
+
+
+def _world_points_from_ego(pred, x, y, yaw):
+    cos_yaw = math.cos(yaw)
+    sin_yaw = math.sin(yaw)
+    points = []
+    for dx, dy, _dyaw in pred:
+        wx = x + cos_yaw * float(dx) - sin_yaw * float(dy)
+        wy = y + sin_yaw * float(dx) + cos_yaw * float(dy)
+        points.append((wx, wy))
+    return points
+
+
+def _draw_polyline(canvas, points, color, thickness=1):
+    if len(points) >= 2:
+        cv2.polylines(canvas, [np.asarray(points, dtype=np.int32)], False, color, thickness, cv2.LINE_AA)
+
+
+def _draw_route_inset(frame, route, ego_xy, pred_world, progress_m, size=150, margin=10):
+    h, w = frame.shape[:2]
+    x0 = max(w - size - margin, 0)
+    y0 = max(h - size - margin, 0)
+    panel = frame[y0 : y0 + size, x0 : x0 + size]
+    overlay = panel.copy()
+    cv2.rectangle(overlay, (0, 0), (size - 1, size - 1), (15, 15, 15), -1)
+    cv2.addWeighted(overlay, 0.72, panel, 0.28, 0, panel)
+
+    xs = route[:, 0]
+    ys = route[:, 1]
+    pad = 5.0
+    min_x, max_x = float(xs.min() - pad), float(xs.max() + pad)
+    min_y, max_y = float(ys.min() - pad), float(ys.max() + pad)
+    scale = min((size - 16) / max(max_x - min_x, 1e-3), (size - 16) / max(max_y - min_y, 1e-3))
+
+    def to_px(point):
+        px = int(8 + (point[0] - min_x) * scale)
+        py = int(size - 8 - (point[1] - min_y) * scale)
+        return px, py
+
+    route_points = [to_px((float(rx), float(ry))) for rx, ry in route[:, :2]]
+    done_points = [to_px((float(rx), float(ry))) for rx, ry, _yaw, s in route if float(s) <= progress_m]
+    _draw_polyline(panel, route_points, (140, 140, 140), 1)
+    _draw_polyline(panel, done_points, (70, 220, 90), 2)
+    _draw_polyline(panel, [to_px(point) for point in pred_world], (255, 220, 40), 2)
+    cv2.circle(panel, to_px(ego_xy), 4, (60, 170, 255), -1, cv2.LINE_AA)
+    cv2.rectangle(panel, (0, 0), (size - 1, size - 1), (230, 230, 230), 1)
+
+
+def _render_video_frame(image, route, odom, pred, progress_m, route_len, route_dist, scores, step, args):
+    frame = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
+    if args.video_scale != 1.0:
+        frame = cv2.resize(frame, None, fx=args.video_scale, fy=args.video_scale, interpolation=cv2.INTER_LINEAR)
+
+    x, y, yaw, v, _w = [float(value) for value in odom]
+    progress_pct = 100.0 * min(max(progress_m / max(route_len, 1e-6), 0.0), 1.0)
+    pred_world = _world_points_from_ego(pred, x, y, yaw)
+    lines = [
+        f"step {step:04d}  speed {v:.2f} m/s",
+        f"route {progress_pct:.1f}%  CTE {route_dist:.2f} m",
+        f"DS {scores['score_composed']:.1f}  penalty {scores['score_penalty']:.2f}",
+    ]
+    for idx, text in enumerate(lines):
+        y_text = 24 + idx * 22
+        cv2.putText(frame, text, (12, y_text), cv2.FONT_HERSHEY_SIMPLEX, 0.52, (0, 0, 0), 3, cv2.LINE_AA)
+        cv2.putText(frame, text, (12, y_text), cv2.FONT_HERSHEY_SIMPLEX, 0.52, (255, 255, 255), 1, cv2.LINE_AA)
+    _draw_route_inset(frame, route, (x, y), pred_world, progress_m)
+    return frame
 
 
 def _make_scalar(route, route_len, odom, imu, image_valid, lidar_valid, lookahead_m, heading_score_weight):
@@ -143,6 +268,7 @@ def rollout(args):
 
     original_settings = world.get_settings()
     actors = []
+    video_writer = None
     try:
         settings = world.get_settings()
         settings.synchronous_mode = True
@@ -188,12 +314,41 @@ def rollout(args):
         imu = world.spawn_actor(imu_bp, carla.Transform(), attach_to=vehicle)
         actors.append(imu)
 
+        infractions = _new_infraction_log()
+        seen_red_lights = set()
+
+        collision_bp = blueprints.find("sensor.other.collision")
+        collision_sensor = world.spawn_actor(collision_bp, carla.Transform(), attach_to=vehicle)
+        actors.append(collision_sensor)
+
+        def on_collision(event):
+            other_type = event.other_actor.type_id if event.other_actor else "unknown"
+            key = _collision_key(other_type)
+            loc = event.transform.location
+            impulse = event.normal_impulse
+            intensity = math.sqrt(impulse.x * impulse.x + impulse.y * impulse.y + impulse.z * impulse.z)
+            infractions[key].append(f"Collision with {other_type} at {_location_text(loc)} intensity={intensity:.2f}")
+
+        collision_sensor.listen(on_collision)
+
+        lane_bp = blueprints.find("sensor.other.lane_invasion")
+        lane_sensor = world.spawn_actor(lane_bp, carla.Transform(), attach_to=vehicle)
+        actors.append(lane_sensor)
+
+        def on_lane_invasion(event):
+            loc = event.actor.get_location()
+            markings = ", ".join(f"{marking.type}:{marking.color}" for marking in event.crossed_lane_markings)
+            infractions["outside_route_lanes"].append(f"Lane invasion at {_location_text(loc)} markings=[{markings}]")
+
+        lane_sensor.listen(on_lane_invasion)
+
         camera_q = queue.Queue()
         lidar_q = queue.Queue()
         imu_q = queue.Queue()
         camera.listen(camera_q.put)
         lidar.listen(lidar_q.put)
         imu.listen(imu_q.put)
+        video_writer = _open_video_writer(args.video_output, args.image_size, args.hz, args.video_scale, args.video_codec)
 
         for _ in range(max(int(args.warmup_sec * args.hz), 0)):
             world.tick()
@@ -202,6 +357,7 @@ def rollout(args):
         cross_track_errors = []
         progress_values = []
         success = False
+        route_deviation = False
         for step in range(max_steps):
             frame = world.tick()
             camera_data = _get_matching(camera_q, frame)
@@ -231,28 +387,77 @@ def rollout(args):
             _apply_control(carla, vehicle, pred, args)
 
             cross_track_errors.append(route_dist)
-            progress_values.append(float(route[nearest_idx, 3]))
+            progress_m = float(route[nearest_idx, 3])
+            progress_values.append(progress_m)
+            if args.count_red_lights and odom[3] > args.red_light_speed_threshold:
+                traffic_light = vehicle.get_traffic_light()
+                if traffic_light is not None and vehicle.get_traffic_light_state() == carla.TrafficLightState.Red:
+                    if traffic_light.id not in seen_red_lights:
+                        seen_red_lights.add(traffic_light.id)
+                        infractions["red_light"].append(f"Agent moved through red light {traffic_light.id} at {_location_text(location)}")
+
+            route_completion_pct = 100.0 * min(max(progress_m / max(route_len, 1e-6), 0.0), 1.0)
+            scores_now = _score_like_leaderboard(route_completion_pct, infractions)
+            if video_writer is not None:
+                video_writer.write(_render_video_frame(image, route, odom, pred, progress_m, route_len, route_dist, scores_now, step, args))
+
             if route_len - route[nearest_idx, 3] <= args.goal_tolerance_m:
                 success = True
                 break
             if route_dist > args.failure_distance_m:
+                route_deviation = True
+                infractions["route_dev"].append(f"Agent deviated from route at {_location_text(location)} distance={route_dist:.2f}m")
                 break
 
+        if not success and not route_deviation and len(cross_track_errors) >= max_steps:
+            infractions["route_timeout"].append(f"Route timeout after {args.duration_sec:.1f}s")
+
         vehicle.apply_control(carla.VehicleControl(brake=1.0))
+        final_progress = progress_values[-1] if progress_values else 0.0
+        max_progress = max(progress_values) if progress_values else 0.0
+        route_completion_pct = 100.0 * min(max(max_progress / max(route_len, 1e-6), 0.0), 1.0)
+        scores = _score_like_leaderboard(route_completion_pct, infractions)
+        if success:
+            status = "Completed"
+        elif route_deviation:
+            status = "Failed - Agent deviated from the route"
+        elif infractions["route_timeout"]:
+            status = "Failed - Route timeout"
+        else:
+            status = "Failed - Incomplete route"
         metrics = {
+            "index": 0,
+            "route_id": Path(args.route_npz).stem,
+            "status": status,
             "success": success,
             "steps": len(cross_track_errors),
+            "num_infractions": int(sum(len(value) for value in infractions.values())),
+            "infractions": infractions,
+            "scores": scores,
             "route_length_m": route_len,
-            "final_progress_m": progress_values[-1] if progress_values else 0.0,
+            "final_progress_m": final_progress,
+            "max_progress_m": max_progress,
+            "route_completion_pct": route_completion_pct,
             "mean_cross_track_error_m": float(np.mean(cross_track_errors)) if cross_track_errors else None,
             "max_cross_track_error_m": float(np.max(cross_track_errors)) if cross_track_errors else None,
             "device": str(device),
+            "meta": {
+                "map": world.get_map().name,
+                "duration_game": len(cross_track_errors) / float(args.hz),
+                "duration_limit": args.duration_sec,
+                "leaderboard_like": True,
+                "official_carla_leaderboard": False,
+                "note": "Lightweight local evaluator modeled after CARLA Leaderboard metrics; not an official leaderboard run.",
+                "video_output": args.video_output or None,
+            },
         }
         out_path = Path(args.output).expanduser()
         out_path.parent.mkdir(parents=True, exist_ok=True)
         out_path.write_text(json.dumps(metrics, indent=2, ensure_ascii=False), encoding="utf-8")
         print(json.dumps(metrics, indent=2, ensure_ascii=False))
     finally:
+        if video_writer is not None:
+            video_writer.release()
         _destroy_actors(client, carla, actors)
         try:
             world.apply_settings(original_settings)
@@ -303,6 +508,11 @@ def build_arg_parser():
     parser.add_argument("--max-brake", type=float, default=0.7)
     parser.add_argument("--goal-tolerance-m", type=float, default=5.0)
     parser.add_argument("--failure-distance-m", type=float, default=8.0)
+    parser.add_argument("--count-red-lights", action="store_true")
+    parser.add_argument("--red-light-speed-threshold", type=float, default=0.3)
+    parser.add_argument("--video-output", default="")
+    parser.add_argument("--video-scale", type=float, default=4.0)
+    parser.add_argument("--video-codec", default="mp4v")
     parser.add_argument("--no-rendering", action="store_true")
     parser.add_argument("--cpu", action="store_true")
     return parser

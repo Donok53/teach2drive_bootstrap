@@ -141,6 +141,21 @@ Run a closed-loop rollout from the demonstrated route start:
   --lookahead-m 6.0
 ```
 
+To save a front-camera video and lightweight CARLA-Leaderboard-style metrics, add `--video-output`:
+
+```bash
+/home/byeongjae/miniconda3/envs/vad/bin/python -m teach2drive.carla_rollout \
+  --checkpoint runs/carla_default/best_sensor_model.pt \
+  --route-npz runs/carla_default/sensor_route.npz \
+  --output runs/carla_default/leaderboard_like_metrics.json \
+  --video-output runs/carla_default/rollout_video.mp4 \
+  --duration-sec 90 \
+  --lookahead-m 6.0 \
+  --count-red-lights
+```
+
+This evaluator reports route completion, infraction penalty, driving score, collisions, lane invasions, route deviation, timeout, and an annotated video. It is modeled after CARLA Leaderboard scoring, but it is not an official Leaderboard submission run because it does not use ScenarioRunner route XML/scenario configs.
+
 ## Model Input
 
 The current baseline uses a compact route-policy input:

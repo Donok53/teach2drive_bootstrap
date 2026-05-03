@@ -11,6 +11,9 @@ Current outputs:
 - `runs/carla_default/best_sensor_model.pt`
 - `runs/carla_default/sensor_metrics.json`
 - `runs/carla_default/rollout_metrics_90s.json`
+- `runs/carla_default/leaderboard_like_metrics.json`
+- `runs/carla_default/rollout_video.mp4`
+- `runs/carla_default/rollout_contact_sheet.jpg`
 
 The sensor model was trained with:
 
@@ -36,4 +39,19 @@ best_val_loss: 0.00962936133146286
 90s rollout success: true
 90s mean_cross_track_error_m: 0.2168555871537299
 90s max_cross_track_error_m: 1.4241096601971066
+```
+
+CARLA leaderboard-like visual rollout:
+
+```text
+video: runs/carla_default/rollout_video.mp4
+preview: runs/carla_default/rollout_contact_sheet.jpg
+metrics: runs/carla_default/leaderboard_like_metrics.json
+status: Failed - Route timeout
+route_completion_pct: 92.535533945104
+score_penalty: 0.7
+score_composed: 64.7748737615728
+mean_cross_track_error_m: 0.2073218737856596
+max_cross_track_error_m: 1.4147435682324716
+infractions: 1 red_light approximation, 1 route_timeout, 0 collisions, 0 lane invasions
 ```
