@@ -87,6 +87,58 @@ Only after the predicted path looks sane in RViz, enable `/cmd_vel` output with 
 
 Keep an external emergency stop active. The node publishes zero velocity if odom is stale, camera/LiDAR is stale, or the robot is farther than `--max-route-distance` from the demonstrated route.
 
+## CARLA Check
+
+This repository can also collect a CARLA route dataset and run an initial closed-loop route-following check.
+
+Prerequisites:
+
+```bash
+# Use the CARLA client version that matches your server.
+/home/byeongjae/miniconda3/envs/vad/bin/pip install carla==0.9.15
+
+# In another terminal, start CARLA, for example:
+./CarlaUE4.sh -RenderOffScreen -quality-level=Low -carla-rpc-port=2000
+```
+
+Collect an autopilot demonstration:
+
+```bash
+cd /home/byeongjae/code/teach2drive_bootstrap
+/home/byeongjae/miniconda3/envs/vad/bin/python -m teach2drive.carla_collect \
+  --map Town03 \
+  --output runs/carla_town03/sensor_route.npz \
+  --duration-sec 120 \
+  --hz 10
+```
+
+Build samples and train:
+
+```bash
+/home/byeongjae/miniconda3/envs/vad/bin/python -m teach2drive.sensor_dataset \
+  --input runs/carla_town03/sensor_route.npz \
+  --output runs/carla_town03/sensor_dataset.npz \
+  --lookahead-m 6.0 \
+  --augmentations 2 \
+  --require-exteroceptive
+
+/home/byeongjae/miniconda3/envs/vad/bin/python -m teach2drive.train_sensor \
+  --data runs/carla_town03/sensor_dataset.npz \
+  --out-dir runs/carla_town03 \
+  --epochs 80
+```
+
+Run a closed-loop rollout from the demonstrated route start:
+
+```bash
+/home/byeongjae/miniconda3/envs/vad/bin/python -m teach2drive.carla_rollout \
+  --checkpoint runs/carla_town03/best_sensor_model.pt \
+  --route-npz runs/carla_town03/sensor_route.npz \
+  --output runs/carla_town03/rollout_metrics.json \
+  --duration-sec 90 \
+  --lookahead-m 6.0
+```
+
 ## Model Input
 
 The current baseline uses a compact route-policy input:
