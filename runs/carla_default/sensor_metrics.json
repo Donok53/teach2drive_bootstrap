@@ -1,0 +1,23 @@
+{
+  "data": "runs/carla_default/sensor_dataset.npz",
+  "device": "cuda",
+  "samples": 840,
+  "train_samples": 714,
+  "val_samples": 126,
+  "best_epoch": 29,
+  "best_val_loss": 0.00962936133146286,
+  "split_mode": "group_random",
+  "mean_xy_error_m_by_horizon": [
+    0.10633031278848648,
+    0.14300702512264252,
+    0.2930265963077545,
+    0.6468584537506104
+  ],
+  "mean_yaw_error_rad_by_horizon": [
+    0.02218790538609028,
+    0.023910745978355408,
+    0.03113597258925438,
+    0.031391266733407974
+  ],
+  "final_horizon_xy_error_m": 0.6468583941459656
+}

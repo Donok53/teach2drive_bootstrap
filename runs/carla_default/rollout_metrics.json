@@ -1,0 +1,9 @@
+{
+  "success": false,
+  "steps": 600,
+  "route_length_m": 73.62536061463608,
+  "final_progress_m": 67.77497992876346,
+  "mean_cross_track_error_m": 0.23198052717326315,
+  "max_cross_track_error_m": 1.4190546084618623,
+  "device": "cuda"
+}

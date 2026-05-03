@@ -112,6 +112,8 @@ cd /home/byeongjae/code/teach2drive_bootstrap
   --hz 10
 ```
 
+If CARLA is already running on a loaded map and `load_world()` is unstable, omit `--map`. The committed smoke-check artifacts in `runs/carla_default` were collected this way from `Town10HD_Opt`.
+
 Build samples and train:
 
 ```bash
@@ -145,11 +147,13 @@ The current baseline uses a compact route-policy input:
 
 - ego velocity and yaw rate from odometry
 - optional IMU summary resampled to odometry timestamps
+- optional camera image embedding
+- optional LiDAR/LaserScan BEV embedding
 - local lookahead waypoint in the ego frame
 - nearest route anchor in the ego frame
 - progress and remaining route distance
 
-This keeps the first version intentionally small. Camera/LiDAR encoders can be added behind the same dataset interface once the route-memory baseline is verified.
+This keeps the first version intentionally small while still allowing camera and LiDAR-conditioned policies when those sensors are available.
 
 ## Model Output
 

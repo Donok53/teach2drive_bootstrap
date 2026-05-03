@@ -8,7 +8,7 @@ import cv2
 import numpy as np
 import torch
 
-from .carla_collect import _carla_image_to_rgb, _carla_lidar_to_bev, _get_matching, _import_carla
+from .carla_collect import _carla_image_to_rgb, _carla_lidar_to_bev, _destroy_actors, _get_matching, _import_carla
 from .geometry import cumulative_distance, pose_to_ego, wrap_angle
 from .model import SensorFusionPolicy
 
@@ -59,6 +59,10 @@ def _projected_speed(vehicle):
     velocity = vehicle.get_velocity()
     yaw = math.radians(transform.rotation.yaw)
     return float(velocity.x * math.cos(yaw) + velocity.y * math.sin(yaw))
+
+
+def _short_map_name(map_name):
+    return str(map_name).rsplit("/", 1)[-1] if map_name else ""
 
 
 def _make_scalar(route, route_len, odom, imu, image_valid, lidar_valid, lookahead_m, heading_score_weight):
@@ -132,7 +136,10 @@ def rollout(args):
     world = client.get_world()
     map_name = args.map or meta.get("map", "")
     if map_name:
-        world = client.load_world(map_name)
+        requested_map = _short_map_name(map_name)
+        current_map = _short_map_name(world.get_map().name)
+        if requested_map and requested_map != current_map:
+            world = client.load_world(requested_map)
 
     original_settings = world.get_settings()
     actors = []
@@ -187,6 +194,9 @@ def rollout(args):
         camera.listen(camera_q.put)
         lidar.listen(lidar_q.put)
         imu.listen(imu_q.put)
+
+        for _ in range(max(int(args.warmup_sec * args.hz), 0)):
+            world.tick()
 
         max_steps = int(args.duration_sec * args.hz)
         cross_track_errors = []
@@ -243,9 +253,11 @@ def rollout(args):
         out_path.write_text(json.dumps(metrics, indent=2, ensure_ascii=False), encoding="utf-8")
         print(json.dumps(metrics, indent=2, ensure_ascii=False))
     finally:
-        for actor in reversed(actors):
-            actor.destroy()
-        world.apply_settings(original_settings)
+        _destroy_actors(client, carla, actors)
+        try:
+            world.apply_settings(original_settings)
+        except RuntimeError:
+            pass
 
 
 def build_arg_parser():
@@ -258,6 +270,7 @@ def build_arg_parser():
     parser.add_argument("--route-npz", required=True)
     parser.add_argument("--output", required=True)
     parser.add_argument("--duration-sec", type=float, default=60.0)
+    parser.add_argument("--warmup-sec", type=float, default=1.0)
     parser.add_argument("--hz", type=int, default=10)
     parser.add_argument("--start-index", type=int, default=0)
     parser.add_argument("--spawn-z", type=float, default=0.5)
@@ -301,4 +314,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

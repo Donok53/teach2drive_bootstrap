@@ -8,6 +8,9 @@ Current outputs:
 - `runs/indoor_3rd/metrics.json`
 - `runs/camera_overlap/best_sensor_model.pt`
 - `runs/camera_overlap/sensor_metrics.json`
+- `runs/carla_default/best_sensor_model.pt`
+- `runs/carla_default/sensor_metrics.json`
+- `runs/carla_default/rollout_metrics_90s.json`
 
 The sensor model was trained with:
 
@@ -21,3 +24,16 @@ final_horizon_xy_error_m: 0.020436229184269905
 ```
 
 Recreate the artifacts with the commands in `README.md`.
+
+CARLA smoke-check output:
+
+```text
+map: Town10HD_Opt
+frames: 300 at 10 Hz
+samples: 840
+device: cuda
+best_val_loss: 0.00962936133146286
+90s rollout success: true
+90s mean_cross_track_error_m: 0.2168555871537299
+90s max_cross_track_error_m: 1.4241096601971066
+```

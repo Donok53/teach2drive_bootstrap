@@ -3,6 +3,7 @@ import json
 import math
 import queue
 import random
+import time
 from pathlib import Path
 
 import cv2
@@ -84,9 +85,13 @@ def _carla_lidar_to_bev(lidar_data, args):
 
 
 def _get_matching(sensor_queue, frame, timeout=2.0):
+    deadline = time.monotonic() + timeout
     while True:
-        data = sensor_queue.get(timeout=timeout)
-        if data.frame == frame:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0.0:
+            raise queue.Empty
+        data = sensor_queue.get(timeout=remaining)
+        if data.frame >= frame:
             return data
 
 
@@ -95,6 +100,31 @@ def _projected_speed(vehicle):
     velocity = vehicle.get_velocity()
     yaw = math.radians(transform.rotation.yaw)
     return float(velocity.x * math.cos(yaw) + velocity.y * math.sin(yaw))
+
+
+def _safe_stop_actor(actor):
+    try:
+        if hasattr(actor, "stop"):
+            actor.stop()
+    except RuntimeError:
+        pass
+
+
+def _destroy_actors(client, carla, actors):
+    for actor in reversed(actors):
+        _safe_stop_actor(actor)
+
+    destroy_commands = []
+    for actor in reversed(actors):
+        try:
+            destroy_commands.append(carla.command.DestroyActor(actor.id))
+        except RuntimeError:
+            pass
+    if destroy_commands:
+        try:
+            client.apply_batch_sync(destroy_commands, True)
+        except RuntimeError:
+            pass
 
 
 def collect(args):
@@ -249,10 +279,15 @@ def collect(args):
         )
         print(json.dumps({"output": str(out_path), "frames": len(times), "duration_sec": args.duration_sec, "map": world.get_map().name}, indent=2))
     finally:
-        for actor in reversed(actors):
-            actor.destroy()
-        traffic_manager.set_synchronous_mode(False)
-        world.apply_settings(original_settings)
+        _destroy_actors(client, carla, actors)
+        try:
+            traffic_manager.set_synchronous_mode(False)
+        except RuntimeError:
+            pass
+        try:
+            world.apply_settings(original_settings)
+        except RuntimeError:
+            pass
 
 
 def build_arg_parser():
@@ -294,4 +329,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
