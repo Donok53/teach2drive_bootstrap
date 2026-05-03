@@ -190,6 +190,15 @@ def _render_video_frame(image, route, odom, pred, progress_m, route_len, route_d
     return frame
 
 
+def _camera_blueprint(blueprints, image_size, fov, hz):
+    camera_bp = blueprints.find("sensor.camera.rgb")
+    camera_bp.set_attribute("image_size_x", str(image_size[0]))
+    camera_bp.set_attribute("image_size_y", str(image_size[1]))
+    camera_bp.set_attribute("fov", str(fov))
+    camera_bp.set_attribute("sensor_tick", str(1.0 / hz))
+    return camera_bp
+
+
 def _make_scalar(route, route_len, odom, imu, image_valid, lidar_valid, lookahead_m, heading_score_weight):
     x, y, yaw, v, w = [float(value) for value in odom]
     nearest_idx, route_dist = _nearest_route(route, x, y, yaw, heading_score_weight)
@@ -286,17 +295,22 @@ def rollout(args):
         vehicle = world.spawn_actor(vehicle_bp, spawn)
         actors.append(vehicle)
 
-        camera_bp = blueprints.find("sensor.camera.rgb")
-        camera_bp.set_attribute("image_size_x", str(args.image_size[0]))
-        camera_bp.set_attribute("image_size_y", str(args.image_size[1]))
-        camera_bp.set_attribute("fov", str(args.camera_fov))
-        camera_bp.set_attribute("sensor_tick", str(1.0 / args.hz))
+        camera_transform = carla.Transform(carla.Location(x=1.5, z=1.6), carla.Rotation(pitch=-8.0))
+        camera_bp = _camera_blueprint(blueprints, args.image_size, args.camera_fov, args.hz)
         camera = world.spawn_actor(
             camera_bp,
-            carla.Transform(carla.Location(x=1.5, z=1.6), carla.Rotation(pitch=-8.0)),
+            camera_transform,
             attach_to=vehicle,
         )
         actors.append(camera)
+
+        video_camera = None
+        video_size = args.image_size
+        if args.video_output and args.video_image_size:
+            video_size = args.video_image_size
+            video_camera_bp = _camera_blueprint(blueprints, video_size, args.camera_fov, args.hz)
+            video_camera = world.spawn_actor(video_camera_bp, camera_transform, attach_to=vehicle)
+            actors.append(video_camera)
 
         lidar_bp = blueprints.find("sensor.lidar.ray_cast")
         lidar_bp.set_attribute("channels", str(args.lidar_channels))
@@ -345,10 +359,13 @@ def rollout(args):
         camera_q = queue.Queue()
         lidar_q = queue.Queue()
         imu_q = queue.Queue()
+        video_camera_q = queue.Queue() if video_camera is not None else None
         camera.listen(camera_q.put)
         lidar.listen(lidar_q.put)
         imu.listen(imu_q.put)
-        video_writer = _open_video_writer(args.video_output, args.image_size, args.hz, args.video_scale, args.video_codec)
+        if video_camera is not None:
+            video_camera.listen(video_camera_q.put)
+        video_writer = _open_video_writer(args.video_output, video_size, args.hz, args.video_scale, args.video_codec)
 
         for _ in range(max(int(args.warmup_sec * args.hz), 0)):
             world.tick()
@@ -363,6 +380,7 @@ def rollout(args):
             camera_data = _get_matching(camera_q, frame)
             lidar_data = _get_matching(lidar_q, frame)
             imu_data = _get_matching(imu_q, frame)
+            video_camera_data = _get_matching(video_camera_q, frame) if video_camera_q is not None else None
 
             transform = vehicle.get_transform()
             location = transform.location
@@ -381,6 +399,7 @@ def rollout(args):
                 dtype=np.float32,
             )
             image = _carla_image_to_rgb(camera_data, args.image_size)
+            video_image = _carla_image_to_rgb(video_camera_data, video_size) if video_camera_data is not None else image
             lidar_bev = _carla_lidar_to_bev(lidar_data, args)
             scalar, nearest_idx, route_dist = _make_scalar(route, route_len, odom, imu_values, True, True, args.lookahead_m, args.heading_score_weight)
             pred = _predict(model, norm, device, scalar, image, lidar_bev)
@@ -399,7 +418,7 @@ def rollout(args):
             route_completion_pct = 100.0 * min(max(progress_m / max(route_len, 1e-6), 0.0), 1.0)
             scores_now = _score_like_leaderboard(route_completion_pct, infractions)
             if video_writer is not None:
-                video_writer.write(_render_video_frame(image, route, odom, pred, progress_m, route_len, route_dist, scores_now, step, args))
+                video_writer.write(_render_video_frame(video_image, route, odom, pred, progress_m, route_len, route_dist, scores_now, step, args))
 
             if route_len - route[nearest_idx, 3] <= args.goal_tolerance_m:
                 success = True
@@ -511,6 +530,7 @@ def build_arg_parser():
     parser.add_argument("--count-red-lights", action="store_true")
     parser.add_argument("--red-light-speed-threshold", type=float, default=0.3)
     parser.add_argument("--video-output", default="")
+    parser.add_argument("--video-image-size", type=int, nargs=2, default=None, metavar=("WIDTH", "HEIGHT"))
     parser.add_argument("--video-scale", type=float, default=4.0)
     parser.add_argument("--video-codec", default="mp4v")
     parser.add_argument("--no-rendering", action="store_true")

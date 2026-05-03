@@ -1,0 +1,43 @@
+{
+  "index": 0,
+  "route_id": "sensor_route",
+  "status": "Failed - Route timeout",
+  "success": false,
+  "steps": 900,
+  "num_infractions": 2,
+  "infractions": {
+    "collisions_layout": [],
+    "collisions_pedestrian": [],
+    "collisions_vehicle": [],
+    "red_light": [
+      "Agent moved through red light 12 at (x=-45.20, y=-39.93, z=0.00)"
+    ],
+    "stop_infraction": [],
+    "outside_route_lanes": [],
+    "route_dev": [],
+    "route_timeout": [
+      "Route timeout after 90.0s"
+    ]
+  },
+  "scores": {
+    "score_route": 92.82489525139907,
+    "score_penalty": 0.7,
+    "score_composed": 64.97742667597934
+  },
+  "route_length_m": 73.62536061463608,
+  "final_progress_m": 68.34266386900076,
+  "max_progress_m": 68.34266386900076,
+  "route_completion_pct": 92.82489525139907,
+  "mean_cross_track_error_m": 0.19776059323113326,
+  "max_cross_track_error_m": 1.4610391589383547,
+  "device": "cuda",
+  "meta": {
+    "map": "Carla/Maps/Town10HD_Opt",
+    "duration_game": 90.0,
+    "duration_limit": 90.0,
+    "leaderboard_like": true,
+    "official_carla_leaderboard": false,
+    "note": "Lightweight local evaluator modeled after CARLA Leaderboard metrics; not an official leaderboard run.",
+    "video_output": "runs/carla_default/rollout_video_hd.mp4"
+  }
+}

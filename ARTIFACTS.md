@@ -14,6 +14,9 @@ Current outputs:
 - `runs/carla_default/leaderboard_like_metrics.json`
 - `runs/carla_default/rollout_video.mp4`
 - `runs/carla_default/rollout_contact_sheet.jpg`
+- `runs/carla_default/leaderboard_like_metrics_hd.json`
+- `runs/carla_default/rollout_video_hd.mp4`
+- `runs/carla_default/rollout_contact_sheet_hd.jpg`
 
 The sensor model was trained with:
 
@@ -53,5 +56,21 @@ score_penalty: 0.7
 score_composed: 64.7748737615728
 mean_cross_track_error_m: 0.2073218737856596
 max_cross_track_error_m: 1.4147435682324716
+infractions: 1 red_light approximation, 1 route_timeout, 0 collisions, 0 lane invasions
+```
+
+CARLA HD visual rollout:
+
+```text
+video: runs/carla_default/rollout_video_hd.mp4
+preview: runs/carla_default/rollout_contact_sheet_hd.jpg
+metrics: runs/carla_default/leaderboard_like_metrics_hd.json
+video_resolution: 960x540
+status: Failed - Route timeout
+route_completion_pct: 92.82489525139907
+score_penalty: 0.7
+score_composed: 64.97742667597934
+mean_cross_track_error_m: 0.19776059323113326
+max_cross_track_error_m: 1.4610391589383547
 infractions: 1 red_light approximation, 1 route_timeout, 0 collisions, 0 lane invasions
 ```

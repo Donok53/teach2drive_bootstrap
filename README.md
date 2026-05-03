@@ -156,6 +156,21 @@ To save a front-camera video and lightweight CARLA-Leaderboard-style metrics, ad
 
 This evaluator reports route completion, infraction penalty, driving score, collisions, lane invasions, route deviation, timeout, and an annotated video. It is modeled after CARLA Leaderboard scoring, but it is not an official Leaderboard submission run because it does not use ScenarioRunner route XML/scenario configs.
 
+The default visual rollout uses the same low-resolution camera as the model input. For a clearer video while keeping model inference at the trained input size, attach a separate high-resolution video camera:
+
+```bash
+/home/byeongjae/miniconda3/envs/vad/bin/python -m teach2drive.carla_rollout \
+  --checkpoint runs/carla_default/best_sensor_model.pt \
+  --route-npz runs/carla_default/sensor_route.npz \
+  --output runs/carla_default/leaderboard_like_metrics_hd.json \
+  --video-output runs/carla_default/rollout_video_hd.mp4 \
+  --video-image-size 960 540 \
+  --video-scale 1.0 \
+  --duration-sec 90 \
+  --lookahead-m 6.0 \
+  --count-red-lights
+```
+
 ## Model Input
 
 The current baseline uses a compact route-policy input:
