@@ -472,6 +472,14 @@ PYTHONUNBUFFERED=1 CUDA_VISIBLE_DEVICES=0,1 /home/byeongjae/miniconda3/envs/vad/
   --log-every 1 2>&1 | tee runs/town10_3cam_640x360_tokens/train_v5_pseudo_ruleaware_multicam/train.log
 ```
 
+Print detailed class-level validation metrics for any token training run:
+
+```bash
+/home/byeongjae/miniconda3/envs/vad/bin/python -m teach2drive.report_token_results \
+  --run-dir runs/town10_3cam_640x360_tokens/train_v5_pseudo_ruleaware_multicam \
+  --output-json runs/town10_3cam_640x360_tokens/train_v5_pseudo_ruleaware_multicam/result_report.json
+```
+
 Run a closed-loop CARLA visualization for a token model:
 
 ```bash

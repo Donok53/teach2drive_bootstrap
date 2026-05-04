@@ -5,6 +5,7 @@ __all__ = [
     "ingest",
     "model",
     "pseudo_label_multicam",
+    "report_token_results",
     "route_dataset",
     "rosbag_extract",
     "train",
