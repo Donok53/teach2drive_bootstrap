@@ -198,6 +198,77 @@ Monitor dataset growth in another terminal:
   --interval-sec 10
 ```
 
+## Unified Data Ingest
+
+All dataset sources should be normalized into the same Teach2Drive token episode format before pseudo-labeling or training. For a ROS1 bag, inspect topics first:
+
+```bash
+/usr/bin/python3 -m teach2drive.ingest \
+  --input "/path/to/run.bag" \
+  --output data/real/my_robot_run \
+  --input-type ros1_bag \
+  --inspect
+```
+
+Then convert the bag into token episodes:
+
+```bash
+/usr/bin/python3 -m teach2drive.ingest \
+  --input "/path/to/run.bag" \
+  --output data/real/my_robot_run \
+  --input-type ros1_bag \
+  --hz 10 \
+  --camera-topics front:auto \
+  --odom-topic auto \
+  --imu-topic auto \
+  --lidar-topic auto \
+  --image-size 640 360 \
+  --bev-size 128 \
+  --overwrite
+```
+
+For a quick smoke test before converting a long bag, add `--max-duration-sec 2`.
+
+If `--input` is a folder, every `*.bag` under that folder is converted into one episode:
+
+```bash
+/usr/bin/python3 -m teach2drive.ingest \
+  --input "/home/byeongjae/bagfiles/3차 주행" \
+  --output data/real/third_drive \
+  --input-type ros1_bag \
+  --camera-topics front:auto \
+  --odom-topic auto \
+  --imu-topic auto \
+  --lidar-topic auto \
+  --hz 10 \
+  --overwrite
+```
+
+For multi-camera bags, pass explicit topic mappings:
+
+```bash
+/usr/bin/python3 -m teach2drive.ingest \
+  --input "/path/to/run.bag" \
+  --output data/real/my_robot_run \
+  --input-type ros1_bag \
+  --camera-topics front:/front/image_raw,left:/left/image_raw,right:/right/image_raw \
+  --lidar-topic /velodyne_points \
+  --odom-topic /odom \
+  --hz 10 \
+  --overwrite
+```
+
+The output has the same structure as the CARLA token dataset:
+
+```text
+episode_000000/
+  frames.jsonl
+  camera/front/*.jpg
+  lidar_bev/*.npy
+```
+
+Missing sensors are represented by placeholder tokens plus `sensor_valid` flags, so the downstream pseudo-label and training pipeline stays the same. After ingest, run `teach2drive.pseudo_label`, `teach2drive.token_dataset`, and `teach2drive.train_ruleaware` exactly as below.
+
 Build the lightweight training index. This does not copy images into a giant `.npz`; it stores token references plus odom-derived targets, optional label masks, and phase weights:
 
 ```bash

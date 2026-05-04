@@ -2,7 +2,7 @@ import argparse
 import json
 import math
 from pathlib import Path
-from typing import Dict, List, Sequence
+from typing import Dict, List, Sequence, Tuple
 
 import numpy as np
 
@@ -135,6 +135,8 @@ def _feature_vector(
     v: float,
     w: float,
     imu: np.ndarray,
+    image_valid: float,
+    lidar_valid: float,
     current_pose: Sequence[float],
     anchor_pose: Sequence[float],
     lookahead_pose: Sequence[float],
@@ -147,8 +149,8 @@ def _feature_vector(
         v,
         w,
         *imu.tolist(),
-        1.0,
-        1.0,
+        float(image_valid),
+        float(lidar_valid),
         gx,
         gy,
         math.sin(gyaw),
@@ -180,6 +182,19 @@ def _lane_label(frame: Dict, lateral_offset: float = 0.0, yaw_delta: float = 0.0
     center_offset = float(lane.get("lane_center_offset_m", 0.0)) + float(lateral_offset)
     heading_error = float(wrap_angle(float(lane.get("lane_heading_error_rad", 0.0)) + float(yaw_delta)))
     return np.asarray([center_offset, heading_error], dtype=np.float32), 1.0
+
+
+def _sensor_valid(frame: Dict, cameras: Sequence[str]) -> Tuple[float, float]:
+    sensor_valid = frame.get("sensor_valid") or {}
+    camera_valid = sensor_valid.get("camera")
+    if isinstance(camera_valid, dict):
+        image_valid = any(bool(camera_valid.get(camera, False)) for camera in cameras)
+    elif "image" in sensor_valid:
+        image_valid = bool(sensor_valid.get("image"))
+    else:
+        image_valid = True
+    lidar_valid = bool(sensor_valid.get("lidar", True))
+    return float(image_valid), float(lidar_valid)
 
 
 def _phase_weight(phase: str, args: argparse.Namespace) -> float:
@@ -328,10 +343,13 @@ def build_token_dataset(args: argparse.Namespace) -> None:
             for lateral, forward, yaw_delta in perturbations:
                 current_pose = perturb_pose(anchor_pose[0], anchor_pose[1], anchor_pose[2], lateral, forward, yaw_delta)
                 lane_target, lane_mask = _lane_label(frames[frame_idx], lateral, yaw_delta)
+                image_valid, lidar_valid = _sensor_valid(frames[frame_idx], cameras)
                 scalar_features.append(_feature_vector(
                     float(v[frame_idx]),
                     float(w[frame_idx]),
                     imu[frame_idx],
+                    image_valid,
+                    lidar_valid,
                     current_pose,
                     anchor_pose,
                     lookahead_pose,
