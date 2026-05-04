@@ -396,6 +396,42 @@ Then build a separate pseudo-rule index:
   --min-pseudo-reason-confidence 0.25
 ```
 
+For the multicamera stop-reason experiment, keep the front-only pseudo labels above intact and write a separate label file. This teacher searches `front,left,right` for stop signs and traffic lights, then merges the best detection across the temporal stop window:
+
+```bash
+PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:128 /home/byeongjae/miniconda3/envs/vad/bin/python -m teach2drive.pseudo_label_multicam \
+  --input-root data/carla/town10_3cam_640x360 \
+  --output-name pseudo_labels_multicam.jsonl \
+  --summary-output runs/town10_3cam_640x360_tokens/pseudo_label_multicam_summary.json \
+  --label-cameras front,left,right \
+  --front-camera front \
+  --camera-teacher yolo \
+  --yolo-model yolov8n.pt \
+  --yolo-device 0 \
+  --yolo-imgsz 640 \
+  --yolo-batch 16 \
+  --yolo-chunk 128
+```
+
+Build a matching multicamera pseudo-rule index by pointing `token_dataset` at that new label file:
+
+```bash
+/home/byeongjae/miniconda3/envs/vad/bin/python -m teach2drive.token_dataset \
+  --input-root data/carla/town10_3cam_640x360 \
+  --output runs/town10_3cam_640x360_tokens/token_pseudo_rule_multicam_index.npz \
+  --pseudo-label-name pseudo_labels_multicam.jsonl \
+  --cameras front,left,right \
+  --horizons 0.5,1.0,1.5,2.0 \
+  --lookahead-m 8.0 \
+  --augmentations 2 \
+  --lateral-max-m 1.2 \
+  --forward-max-m 0.7 \
+  --yaw-max-deg 45 \
+  --stop-state-stop-speed 0.35 \
+  --stop-state-move-speed 1.0 \
+  --min-pseudo-reason-confidence 0.25
+```
+
 Train with the same rule-aware entry point:
 
 ```bash
@@ -414,6 +450,26 @@ PYTHONUNBUFFERED=1 CUDA_VISIBLE_DEVICES=0,1 /home/byeongjae/miniconda3/envs/vad/
   --data-parallel \
   --step-log-every 200 \
   --log-every 1 2>&1 | tee runs/town10_3cam_640x360_tokens/train_v4_pseudo_ruleaware/train.log
+```
+
+Or keep the multicamera comparison in its own training entry point and folder:
+
+```bash
+mkdir -p runs/town10_3cam_640x360_tokens/train_v5_pseudo_ruleaware_multicam
+PYTHONUNBUFFERED=1 CUDA_VISIBLE_DEVICES=0,1 /home/byeongjae/miniconda3/envs/vad/bin/python -m teach2drive.train_ruleaware_multicam \
+  --index runs/town10_3cam_640x360_tokens/token_pseudo_rule_multicam_index.npz \
+  --out-dir runs/town10_3cam_640x360_tokens/train_v5_pseudo_ruleaware_multicam \
+  --epochs 20 \
+  --batch-size 32 \
+  --lr 5e-4 \
+  --embed-dim 160 \
+  --hidden-dim 320 \
+  --transformer-layers 2 \
+  --num-heads 4 \
+  --num-workers 8 \
+  --data-parallel \
+  --step-log-every 200 \
+  --log-every 1 2>&1 | tee runs/town10_3cam_640x360_tokens/train_v5_pseudo_ruleaware_multicam/train.log
 ```
 
 Run a closed-loop CARLA visualization for a token model:

@@ -81,7 +81,7 @@ def _merge_optional_labels(frame: Dict, label: Dict) -> Dict:
     return merged
 
 
-def _read_frames(path: Path) -> List[Dict]:
+def _read_frames(path: Path, pseudo_label_name: str = "pseudo_labels.jsonl") -> List[Dict]:
     frames = []
     with path.open("r", encoding="utf-8") as handle:
         for line in handle:
@@ -89,7 +89,7 @@ def _read_frames(path: Path) -> List[Dict]:
             if line:
                 frames.append(json.loads(line))
     frames.sort(key=lambda item: (int(item.get("step", 0)), float(item.get("time", 0.0))))
-    pseudo_labels = _read_label_records(path.parent / "pseudo_labels.jsonl")
+    pseudo_labels = _read_label_records(path.parent / pseudo_label_name)
     if not pseudo_labels:
         return frames
     merged = []
@@ -296,7 +296,7 @@ def build_token_dataset(args: argparse.Namespace) -> None:
     valid_frames = 0
 
     for episode_idx, episode_dir in enumerate(episode_dirs):
-        raw_frames = _read_frames(episode_dir / "frames.jsonl")
+        raw_frames = _read_frames(episode_dir / "frames.jsonl", args.pseudo_label_name)
         total_frames += len(raw_frames)
         keep_indices = [idx for idx, frame in enumerate(raw_frames) if _has_required_tokens(episode_dir, frame, cameras)]
         if len(keep_indices) < 2:
@@ -402,6 +402,7 @@ def build_token_dataset(args: argparse.Namespace) -> None:
         "drive_weight": args.drive_weight,
         "stopped_start_weight": args.stopped_start_weight,
         "stopped_end_weight": args.stopped_end_weight,
+        "pseudo_label_name": args.pseudo_label_name,
         "feature_names": FEATURE_NAMES,
         "traj_target": "flattened [dx, dy, dyaw] for each horizon in ego frame",
         "speed_target": "future v_forward for each horizon",
@@ -467,6 +468,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--input-root", nargs="+", required=True, help="Tokenized dataset root(s) or episode directory.")
     parser.add_argument("--output", required=True, help="Output token index .npz.")
     parser.add_argument("--cameras", "--camera-names", dest="camera_names", default="front,left,right", help="Comma separated camera token names.")
+    parser.add_argument("--pseudo-label-name", default="pseudo_labels.jsonl", help="Per-episode pseudo label filename to merge, or a missing filename to disable pseudo labels.")
     parser.add_argument("--horizons", type=_parse_horizons, default=list(DEFAULT_HORIZONS), help="Comma separated future horizons in seconds.")
     parser.add_argument("--lookahead-m", type=float, default=8.0)
     parser.add_argument("--augmentations", type=int, default=2)
