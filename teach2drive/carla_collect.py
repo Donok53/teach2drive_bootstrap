@@ -156,7 +156,8 @@ def collect(args):
         spawn = spawn_points[args.spawn_index] if args.spawn_index >= 0 else rng.choice(spawn_points)
         vehicle = world.spawn_actor(vehicle_bp, spawn)
         actors.append(vehicle)
-        vehicle.set_autopilot(True, traffic_manager.get_port())
+        vehicle.set_autopilot(False, traffic_manager.get_port())
+        vehicle.apply_control(carla.VehicleControl(brake=1.0))
         traffic_manager.ignore_lights_percentage(vehicle, args.ignore_lights_percent)
 
         camera_bp = blueprints.find("sensor.camera.rgb")
@@ -195,8 +196,12 @@ def collect(args):
         imu.listen(imu_q.put)
 
         warmup = int(args.warmup_sec * args.hz)
-        total = int(args.duration_sec * args.hz)
+        start_stop_steps = int(args.stopped_start_sec * args.hz)
+        drive_steps = int(args.duration_sec * args.hz)
+        end_stop_steps = int(args.stopped_end_sec * args.hz)
+        total = start_stop_steps + drive_steps + end_stop_steps
         for _ in range(warmup):
+            vehicle.apply_control(carla.VehicleControl(brake=1.0))
             world.tick()
 
         times = []
@@ -204,17 +209,19 @@ def collect(args):
         images = []
         lidar_bevs = []
         imus = []
+        phases = []
         start_elapsed = None
 
-        for i in range(total):
+        def record_tick(phase):
             frame = world.tick()
             snapshot = world.get_snapshot()
             sim_time = float(snapshot.timestamp.elapsed_seconds)
-            if start_elapsed is None:
-                start_elapsed = sim_time
+            nonlocal start_elapsed
             camera_data = _get_matching(camera_q, frame)
             lidar_data = _get_matching(lidar_q, frame)
             imu_data = _get_matching(imu_q, frame)
+            if start_elapsed is None:
+                start_elapsed = sim_time
 
             transform = vehicle.get_transform()
             location = transform.location
@@ -225,6 +232,7 @@ def collect(args):
 
             times.append(sim_time - start_elapsed)
             poses.append([location.x, location.y, yaw, _projected_speed(vehicle), yaw_rate])
+            phases.append(phase)
             images.append(_carla_image_to_rgb(camera_data, args.image_size))
             lidar_bevs.append(_carla_lidar_to_bev(lidar_data, args))
             imus.append([
@@ -236,8 +244,24 @@ def collect(args):
                 imu_data.gyroscope.z,
             ])
 
-            if (i + 1) % max(args.hz * 5, 1) == 0:
-                print(f"collected {i + 1}/{total} frames")
+        for i in range(start_stop_steps):
+            vehicle.apply_control(carla.VehicleControl(brake=1.0))
+            record_tick("stopped_start")
+            if (len(times)) % max(args.hz * 5, 1) == 0:
+                print(f"collected {len(times)}/{total} frames")
+
+        vehicle.set_autopilot(True, traffic_manager.get_port())
+        for i in range(drive_steps):
+            record_tick("drive")
+            if (len(times)) % max(args.hz * 5, 1) == 0:
+                print(f"collected {len(times)}/{total} frames")
+
+        vehicle.set_autopilot(False, traffic_manager.get_port())
+        for i in range(end_stop_steps):
+            vehicle.apply_control(carla.VehicleControl(throttle=0.0, steer=0.0, brake=1.0))
+            record_tick("stopped_end")
+            if (len(times)) % max(args.hz * 5, 1) == 0:
+                print(f"collected {len(times)}/{total} frames")
 
         poses_np = np.asarray(poses, dtype=np.float32)
         out_path = Path(args.output).expanduser()
@@ -248,6 +272,9 @@ def collect(args):
             "port": args.port,
             "map": world.get_map().name,
             "hz": args.hz,
+            "duration_sec": args.duration_sec,
+            "stopped_start_sec": args.stopped_start_sec,
+            "stopped_end_sec": args.stopped_end_sec,
             "spawn_index": args.spawn_index,
             "vehicle_filter": args.vehicle_filter,
             "image_size_wh": args.image_size,
@@ -275,9 +302,17 @@ def collect(args):
             image_valid=np.ones(len(times), dtype=bool),
             lidar_bev=np.stack(lidar_bevs).astype(np.float16),
             lidar_valid=np.ones(len(times), dtype=bool),
+            phase=np.asarray(phases),
             meta=json.dumps(meta, ensure_ascii=False),
         )
-        print(json.dumps({"output": str(out_path), "frames": len(times), "duration_sec": args.duration_sec, "map": world.get_map().name}, indent=2))
+        print(json.dumps({
+            "output": str(out_path),
+            "frames": len(times),
+            "drive_sec": args.duration_sec,
+            "stopped_start_sec": args.stopped_start_sec,
+            "stopped_end_sec": args.stopped_end_sec,
+            "map": world.get_map().name,
+        }, indent=2))
     finally:
         _destroy_actors(client, carla, actors)
         try:
@@ -300,6 +335,8 @@ def build_arg_parser():
     parser.add_argument("--output", required=True)
     parser.add_argument("--duration-sec", type=float, default=120.0)
     parser.add_argument("--warmup-sec", type=float, default=3.0)
+    parser.add_argument("--stopped-start-sec", type=float, default=2.0)
+    parser.add_argument("--stopped-end-sec", type=float, default=5.0)
     parser.add_argument("--hz", type=int, default=10)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--spawn-index", type=int, default=-1)

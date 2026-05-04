@@ -96,3 +96,62 @@ class SensorFusionPolicy(nn.Module):
         ], dim=1)
         return self.head(fused)
 
+
+class TokenFusionPolicy(nn.Module):
+    def __init__(
+        self,
+        scalar_dim: int,
+        output_dim: int,
+        num_cameras: int = 3,
+        image_channels: int = 3,
+        lidar_channels: int = 3,
+        embed_dim: int = 160,
+        hidden_dim: int = 320,
+        transformer_layers: int = 2,
+        num_heads: int = 4,
+        dropout: float = 0.05,
+    ):
+        super().__init__()
+        self.num_cameras = num_cameras
+        self.image_encoder = ConvEncoder(image_channels, embed_dim)
+        self.lidar_encoder = ConvEncoder(lidar_channels, embed_dim)
+        self.scalar_encoder = nn.Sequential(
+            nn.Linear(scalar_dim, embed_dim),
+            nn.LayerNorm(embed_dim),
+            nn.SiLU(),
+            nn.Dropout(dropout),
+        )
+        self.cls_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
+        self.camera_token = nn.Parameter(torch.zeros(1, num_cameras, embed_dim))
+        self.scalar_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
+        self.lidar_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
+        encoder_layer = nn.TransformerEncoderLayer(
+            d_model=embed_dim,
+            nhead=num_heads,
+            dim_feedforward=hidden_dim,
+            dropout=dropout,
+            activation="gelu",
+            batch_first=True,
+        )
+        self.transformer = nn.TransformerEncoder(encoder_layer, num_layers=transformer_layers)
+        self.head = nn.Sequential(
+            nn.LayerNorm(embed_dim),
+            nn.Linear(embed_dim, hidden_dim),
+            nn.SiLU(),
+            nn.Dropout(dropout),
+            nn.Linear(hidden_dim, output_dim),
+        )
+
+    def forward(self, scalar, cameras, lidar):
+        batch_size, num_cameras = cameras.shape[:2]
+        if num_cameras != self.num_cameras:
+            raise ValueError(f"Expected {self.num_cameras} cameras, got {num_cameras}")
+        camera_flat = cameras.reshape(batch_size * num_cameras, *cameras.shape[2:])
+        camera_tokens = self.image_encoder(camera_flat).reshape(batch_size, num_cameras, -1)
+        camera_tokens = camera_tokens + self.camera_token[:, :num_cameras]
+        scalar_token = self.scalar_encoder(scalar).unsqueeze(1) + self.scalar_token
+        lidar_token = self.lidar_encoder(lidar).unsqueeze(1) + self.lidar_token
+        cls_token = self.cls_token.expand(batch_size, -1, -1)
+        tokens = torch.cat([cls_token, scalar_token, lidar_token, camera_tokens], dim=1)
+        fused = self.transformer(tokens)[:, 0]
+        return self.head(fused)

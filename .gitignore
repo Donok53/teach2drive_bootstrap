@@ -8,6 +8,12 @@ __pycache__/
 # Raw bags stay local. Curated run artifacts are committed for robot deployment.
 *.bag
 
+# Large local datasets and experiments stay inside the project workspace,
+# but they are not committed directly.
+data/
+runs/town10_3cam_640x360_tokens/
+runs/*_local/
+
 # Editor and OS noise.
 .idea/
 .vscode/
