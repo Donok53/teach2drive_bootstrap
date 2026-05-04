@@ -52,6 +52,35 @@ def _read_json(path: Path) -> Dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def _read_label_records(path: Path) -> Dict:
+    if not path.exists():
+        return {}
+    by_key = {}
+    with path.open("r", encoding="utf-8") as handle:
+        for line in handle:
+            line = line.strip()
+            if not line:
+                continue
+            item = json.loads(line)
+            frame_token = item.get("frame_token")
+            if frame_token:
+                by_key[("token", str(frame_token))] = item
+            if "step" in item:
+                by_key[("step", int(item["step"]))] = item
+    return by_key
+
+
+def _merge_optional_labels(frame: Dict, label: Dict) -> Dict:
+    if not label:
+        return frame
+    merged = dict(frame)
+    merged["pseudo_label"] = label
+    for key in ("traffic_light", "stop_sign", "front_vehicle", "lane", "control", "pseudo_stop_reason"):
+        if key in label and key not in merged:
+            merged[key] = label[key]
+    return merged
+
+
 def _read_frames(path: Path) -> List[Dict]:
     frames = []
     with path.open("r", encoding="utf-8") as handle:
@@ -60,7 +89,19 @@ def _read_frames(path: Path) -> List[Dict]:
             if line:
                 frames.append(json.loads(line))
     frames.sort(key=lambda item: (int(item.get("step", 0)), float(item.get("time", 0.0))))
-    return frames
+    pseudo_labels = _read_label_records(path.parent / "pseudo_labels.jsonl")
+    if not pseudo_labels:
+        return frames
+    merged = []
+    for frame in frames:
+        label = None
+        frame_token = frame.get("frame_token")
+        if frame_token:
+            label = pseudo_labels.get(("token", str(frame_token)))
+        if label is None and "step" in frame:
+            label = pseudo_labels.get(("step", int(frame["step"])))
+        merged.append(_merge_optional_labels(frame, label or {}))
+    return merged
 
 
 def _has_required_tokens(episode_dir: Path, frame: Dict, cameras: Sequence[str]) -> bool:
@@ -167,6 +208,12 @@ def _stop_reason_label(frame: Dict, phase: str, remaining_m: float, stop_state: 
     state_name = STOP_STATE_NAMES[int(stop_state)]
     if state_name == "drive":
         return STOP_REASON_NAMES.index("none"), 1.0
+    pseudo_reason = frame.get("pseudo_stop_reason") or {}
+    pseudo_name = str(pseudo_reason.get("name", ""))
+    pseudo_confidence = float(pseudo_reason.get("confidence", 0.0))
+    pseudo_mask = float(pseudo_reason.get("mask", 0.0))
+    if pseudo_name in STOP_REASON_NAMES and pseudo_mask > 0.0 and pseudo_confidence >= args.min_pseudo_reason_confidence:
+        return STOP_REASON_NAMES.index(pseudo_name), 1.0
     if phase == "stopped_start":
         return STOP_REASON_NAMES.index("startup"), 1.0
     if phase == "stopped_end" or remaining_m <= args.route_end_reason_m:
@@ -414,6 +461,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--route-end-reason-m", type=float, default=8.0)
     parser.add_argument("--stop-sign-reason-m", type=float, default=18.0)
     parser.add_argument("--front-vehicle-reason-m", type=float, default=12.0)
+    parser.add_argument("--min-pseudo-reason-confidence", type=float, default=0.25)
     parser.add_argument("--train-unknown-stop-reason", action="store_true")
     parser.add_argument("--drive-weight", type=float, default=1.0)
     parser.add_argument("--stopped-start-weight", type=float, default=0.25)

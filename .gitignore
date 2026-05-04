@@ -14,6 +14,9 @@ data/
 runs/town10_3cam_640x360_tokens/
 runs/*_local/
 
+# Downloaded perception teacher weights are reproducible from their model name.
+yolo*.pt
+
 # Editor and OS noise.
 .idea/
 .vscode/

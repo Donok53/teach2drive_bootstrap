@@ -290,6 +290,61 @@ PYTHONUNBUFFERED=1 CUDA_VISIBLE_DEVICES=0,1 /home/byeongjae/miniconda3/envs/vad/
   --log-every 1 2>&1 | tee runs/town10_3cam_640x360_tokens/train_v3_ruleaware/train.log
 ```
 
+### Post-Hoc Pseudo Labels
+
+For the realistic rule-aware setting, keep the raw tokenized dataset unchanged and add `pseudo_labels.jsonl` beside each episode. The pseudo labels are generated offline from raw camera/LiDAR/odom streams:
+
+```bash
+PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:128 /home/byeongjae/miniconda3/envs/vad/bin/python -m teach2drive.pseudo_label \
+  --input-root data/carla/town10_3cam_640x360 \
+  --output-name pseudo_labels.jsonl \
+  --summary-output runs/town10_3cam_640x360_tokens/pseudo_label_summary.json \
+  --camera-teacher yolo \
+  --yolo-model yolov8n.pt \
+  --yolo-device 0 \
+  --yolo-imgsz 640 \
+  --yolo-batch 16 \
+  --yolo-chunk 128
+```
+
+Then build a separate pseudo-rule index:
+
+```bash
+/home/byeongjae/miniconda3/envs/vad/bin/python -m teach2drive.token_dataset \
+  --input-root data/carla/town10_3cam_640x360 \
+  --output runs/town10_3cam_640x360_tokens/token_pseudo_rule_index.npz \
+  --cameras front,left,right \
+  --horizons 0.5,1.0,1.5,2.0 \
+  --lookahead-m 8.0 \
+  --augmentations 2 \
+  --lateral-max-m 1.2 \
+  --forward-max-m 0.7 \
+  --yaw-max-deg 45 \
+  --stop-state-stop-speed 0.35 \
+  --stop-state-move-speed 1.0 \
+  --min-pseudo-reason-confidence 0.25
+```
+
+Train with the same rule-aware entry point:
+
+```bash
+mkdir -p runs/town10_3cam_640x360_tokens/train_v4_pseudo_ruleaware
+PYTHONUNBUFFERED=1 CUDA_VISIBLE_DEVICES=0,1 /home/byeongjae/miniconda3/envs/vad/bin/python -m teach2drive.train_ruleaware \
+  --index runs/town10_3cam_640x360_tokens/token_pseudo_rule_index.npz \
+  --out-dir runs/town10_3cam_640x360_tokens/train_v4_pseudo_ruleaware \
+  --epochs 20 \
+  --batch-size 32 \
+  --lr 5e-4 \
+  --embed-dim 160 \
+  --hidden-dim 320 \
+  --transformer-layers 2 \
+  --num-heads 4 \
+  --num-workers 8 \
+  --data-parallel \
+  --step-log-every 200 \
+  --log-every 1 2>&1 | tee runs/town10_3cam_640x360_tokens/train_v4_pseudo_ruleaware/train.log
+```
+
 Run a closed-loop CARLA visualization for a token model:
 
 ```bash
